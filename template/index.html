@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><meta name="referrer" content="no-referrer">
 <title>申込Webモック環境</title>
 <style>
   body{font-family:"Yu Gothic","Meiryo",sans-serif;font-size:13px;color:#222;background:#f4f5f7;margin:0}
@@ -366,11 +366,11 @@ function hpgDone(id) { const a = S.apps.find(x => x.id === id); h(hpgWrap('需�
 
 /* ============ 資料ダウンロード ============ */
 const FILES = [
-  ['files/kadai-yoshi-kohosha.docx', '課題用紙_候補者配布', '実技課題の設定・課題内容・時間配分（説明3分／作業22分／振り返り5分）。最初にお読みください'],
-  ['files/kanrihyo-hatsudensho-joho.xlsx', 'ダミー管理表_発電所情報', '管理表[発電所情報]（20行）／工事店情報／業務ルール抜粋／申込番号記録'],
-  ['files/tenpu-heimenzu.pdf', '添付_平面図', 'HEPの添付ファイル。ファイル内容「平面図」で添付（必須）'],
-  ['files/tenpu-kansen-keitozu.pdf', '添付_幹線系統図', 'HEPの添付ファイル（任意）'],
-  ['files/tenpu-ichizu-annaizu.pdf', '添付_位置図・案内図', 'HEPの添付ファイル（任意）'],
+  ['../files/kadai-yoshi-kohosha.docx', '課題用紙_候補者配布', '実技課題の設定・課題内容・時間配分（説明3分／作業22分／振り返り5分）。最初にお読みください'],
+  ['../files/kanrihyo-hatsudensho-joho.xlsx', 'ダミー管理表_発電所情報', '管理表[発電所情報]（20行）／工事店情報／業務ルール抜粋／申込番号記録'],
+  ['../files/tenpu-heimenzu.pdf', '添付_平面図', 'HEPの添付ファイル。ファイル内容「平面図」で添付（必須）'],
+  ['../files/tenpu-kansen-keitozu.pdf', '添付_幹線系統図', 'HEPの添付ファイル（任意）'],
+  ['../files/tenpu-ichizu-annaizu.pdf', '添付_位置図・案内図', 'HEPの添付ファイル（任意）'],
 ];
 function filesPage() {
   h(`<div class="site"><div class="hdr" style="background:#555"><b>課題資料のダウンロード</b></div>
