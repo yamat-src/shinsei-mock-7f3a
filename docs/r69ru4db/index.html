@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><meta name="referrer" content="no-referrer">
+<title>申込Webモック環境</title>
+<style>
+  body{font-family:"Yu Gothic","Meiryo",sans-serif;font-size:13px;color:#222;background:#f4f5f7;margin:0}
+  .site{max-width:1100px;margin:0 auto;background:#fff;min-height:100vh}
+  .hdr{display:flex;justify-content:space-between;align-items:center;padding:8px 16px;color:#fff}
+  .hep .hdr{background:#0b6e4f}.hpg .hdr{background:#2b3a67}.admin .hdr{background:#444}
+  .hdr b{font-size:16px}.hdr small{opacity:.9}
+  .ttl{font-weight:bold;font-size:15px;padding:8px 16px;border-bottom:2px solid #ccc;background:#fafafa}
+  .cnt{padding:12px 16px}
+  table.f{border-collapse:collapse;width:100%;margin:8px 0}
+  table.f th,table.f td{border:1px solid #bbb;padding:5px 8px;vertical-align:top;font-size:12px}
+  table.f th{background:#e8ebf0;text-align:left;width:190px;font-weight:normal}
+  table.r{border-collapse:collapse;width:100%;font-size:12px}
+  table.r th,table.r td{border:1px solid #bbb;padding:4px 6px}
+  table.r th{background:#dfe4ec}
+  input[type=text],input[type=password],select{font-size:12px;padding:3px;border:1px solid #999}
+  input[type=button]{font-size:12px;padding:4px 14px;margin:2px;border:1px solid #666;background:#eee;cursor:pointer}
+  input[type=button].primary{background:#2e5597;color:#fff;border-color:#2e5597}
+  .err{background:#fde8e8;border:1px solid #e88;color:#900;padding:6px 10px;margin:8px 0;font-size:12px}
+  .ok{background:#e6f5ea;border:1px solid #6b6;padding:6px 10px;margin:8px 0}
+  .menu{display:flex;gap:24px}.menu .btns{display:flex;flex-direction:column;gap:8px;width:360px}
+  .menu .btns input{padding:10px;font-size:13px}
+  .note{color:#666;font-size:11px}.req{color:#c00}
+  .box{border:1px solid #bbb;padding:8px 12px;margin:8px 0;background:#fbfbfb}
+  .sec{font-weight:bold;background:#e8ebf0;padding:4px 8px;margin-top:12px;border-left:4px solid #2b3a67}
+  .ftr{padding:8px 16px;color:#777;font-size:11px;border-top:1px solid #ddd;margin-top:24px}
+  .home{padding:40px;text-align:center}.home a{display:inline-block;margin:12px;padding:16px 28px;border:1px solid #888;background:#fff;text-decoration:none;color:#222;font-size:15px}
+  .kpi{display:flex;gap:12px;margin:8px 0}.kpi div{border:1px solid #bbb;padding:8px 14px;background:#fafafa;min-width:120px}.kpi b{font-size:20px;display:block}
+  .good{color:#070}.bad{color:#b00}.warn{color:#a60}
+  .subnav a{margin-right:14px;font-size:12px}
+  textarea{font-family:ui-monospace,Consolas,monospace;font-size:11px;border:1px solid #999;padding:4px}
+  pre{font-size:11px;background:#f6f6f6;padding:8px;max-height:260px;overflow:auto}
+</style>
+</head><body><div id="app"></div>
+<script>
+/* ============ 共通 ============ */
+const CASES = [];
+const CRED = { hep: { id: 'hoshino', pw: 'hep2026' }, hpg: { id: 'K000000777', pw: 'hpg2026' }, admin: null };
+const KEY = 'mockState_v1';
+const BUILD = 'candidate';
+function load() {
+  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && s.apps) return s; } catch (e) {}
+  return { apps: [], log: [], settings: { autoIssueMin: 2, examDate: '' }, session: {}, seq: 0, tseq: 0 };
+}
+function save(s) { localStorage.setItem(KEY, JSON.stringify(s)); }
+let S = load();
+function log(site, ev, detail) { S.log.push({ t: new Date().toISOString(), site, ev, detail: detail || '' }); if (S.log.length > 2000) S.log.shift(); save(S); }
+function today() { if (S.settings.examDate) { const d = new Date(S.settings.examDate + 'T00:00:00'); if (!isNaN(d)) return d; } const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
+function ymd(d) { return d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0'); }
+function fmt(d) { return d.getFullYear() + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + String(d.getDate()).padStart(2, '0'); }
+function expectedDate() { const d = today(); const t = new Date(d); t.setMonth(t.getMonth() + 2); if (t.getDay() === 0) t.setDate(t.getDate() - 1); return ymd(t); }
+function isHankaku(s) { return /^[\x20-\x7E]*$/.test(s); }
+function isZenkaku(s) { return s.length > 0 && !/[\x21-\x7E]/.test(s); }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function h(html) { document.getElementById('app').innerHTML = html; window.scrollTo(0, 0); }
+function fv(form, name) { const el = form.elements[name]; if (!el) return ''; if (el.length && el[0] && el[0].type === 'radio') { for (const r of el) if (r.checked) return r.value; return ''; } return (el.value || '').trim(); }
+function go(hash) { location.hash = hash; }
+function checkAutoIssue() {
+  const m = Number(S.settings.autoIssueMin || 0); if (!m) return false;
+  let changed = false;
+  for (const a of S.apps) if (a.status === '申込受付待ち' && Date.now() - a.createdAt > m * 60000) { issue(a, true); changed = true; }
+  if (changed) save(S);
+  return changed;
+}
+function issue(a, auto) {
+  S.tseq++; a.takuso = '32265' + String(9000000 + S.tseq).padStart(8, '0'); a.status = '託送申込済'; a.takusoAt = Date.now();
+  a.mails = a.mails || []; a.mails.push({ t: Date.now(), subject: '【HEP】託送申込番号のお知らせ（' + a.d.meigi2 + '）', body: '申込番号 ' + a.hepNo + ' について受付処理が完了し、託送申込番号が発行されました。\n託送申込番号：' + a.takuso + '\n契約名義：' + a.d.meigi1 + '　' + a.d.meigi2 + '\nHPG託送Web申込システムにて設備情報の訂正登録をお願いします。' });
+  log('admin', auto ? '自動発行' : '受付処理', a.hepNo + ' → ' + a.takuso);
+}
+const SAFE_PAGES = ['', 'hep', 'hep/list', 'hep/mail', 'hep/menu', 'hep/done', 'hpg', 'hpg/menu', 'hpg/search', 'submit'];
+function curPage() { return location.hash.replace(/^#\/?/, '').split('/').slice(0, 2).join('/'); }
+setInterval(() => {
+  S = load(); const changed = checkAutoIssue(); const key = curPage();
+  const editing = /INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '');
+  const imp = document.getElementById('imp');
+  if (key === 'admin') { if (!editing && !(imp && imp.value.trim())) route(); return; }
+  if (changed && SAFE_PAGES.includes(key)) route();
+}, 15000);
+window.addEventListener('storage', () => { S = load(); });
+
+/* ============ ルーティング ============ */
+function route() {
+  S = load(); checkAutoIssue();
+  const hs = location.hash.replace(/^#\/?/, '').split('/');
+  const site = hs[0] || '', pg = hs[1] || '';
+  if (site === 'hep') return HEP(pg, hs[2]);
+  if (site === 'hpg') return HPG(pg, hs[2]);
+  if (site === 'files') return filesPage();
+  if (site === 'submit') return submitPage();
+  h(`<div class="home"><h2>申込Webモック環境</h2><p class="note">面接用の架空サイトです。実在の事業者・システムとは関係ありません。</p>
+  <a href="#/hep">ひかり電力エナジー<br>工事店Web申込サービス</a><a href="#/hpg">ひかり電力パワーグリッド<br>託送Web申込システム</a><br><a href="#/files" style="font-size:12px;padding:8px 16px">課題資料をダウンロード</a><a href="#/submit" style="font-size:12px;padding:8px 16px">提出コードを作成する</a></div>`);
+}
+window.addEventListener('hashchange', route);
+
+/* ============ HEP ============ */
+function hepWrap(title, body) {
+  return `<div class="site hep"><div class="hdr"><b>HIKARI ENERGY</b><span><small>ひかり電力エナジー株式会社　工事店Web申込サービス</small></span></div>
+  <div class="ttl">${title}<span style="float:right;font-weight:normal;font-size:12px">${S.session.hep ? 'ログインユーザ：株式会社ホシノ電設 さま　<a href="#/hep/logout">ログアウト</a>　<a href="#/hep/mail">受信メール</a>　<a href="#/files">資料</a>　<a href="#/submit">提出コード</a>' : ''}</span></div>
+  <div class="cnt">${body}</div><div class="ftr">Copyright (c) HIKARI Energy Co.,Ltd. (mock)</div></div>`;
+}
+function HEP(pg, arg) {
+  log('hep', '画面', pg || 'login');
+  if (pg === 'logout') { S.session.hep = false; save(S); return go('#/hep'); }
+  if (!S.session.hep) return h(hepWrap('ログイン', `
+    <div id="e"></div><form name="f"><table class="f" style="width:420px"><tr><th>ユーザID</th><td><input type="text" name="id" size="20"> (半角)</td></tr>
+    <tr><th>パスワード</th><td><input type="password" name="pw" size="20"> (半角)</td></tr></table>
+    <input type="button" class="primary" value="ログイン" onclick="hepLogin(this.form)"></form>`));
+  const p = { menu: hepMenu, list: hepList, consent: hepConsent, form1: hepForm1, form2: hepForm2, confirm: hepConfirm, done: hepDone, mail: hepMail, detail: hepDetail }[pg || 'menu'];
+  return p ? p(arg) : go('#/hep/menu');
+}
+window.hepLogin = f => { if (fv(f, 'id') === CRED.hep.id && fv(f, 'pw') === CRED.hep.pw) { S.session.hep = true; save(S); log('hep', 'ログイン'); go('#/hep/menu'); } else { document.getElementById('e').innerHTML = '<div class="err">S7ZZZZE0001 ユーザIDまたはパスワードが正しくありません。</div>'; } };
+function hepMenu() {
+  h(hepWrap('申込メニュー', `<div class="menu"><div class="btns">
+    <input type="button" value="低圧（特定小売供給約款）のお申込み" onclick="go('#/hep/list')">
+    <input type="button" value="低圧（電気需給約款／エリア内）のお申込み" onclick="alert('本試験では使用しません')">
+    <input type="button" value="低圧（集合住宅）のお申込み" onclick="alert('本試験では使用しません')">
+    <input type="button" value="高圧・特別高圧のお申込み" onclick="alert('本試験では使用しません')">
+    <input type="button" value="ユーザ情報変更" onclick="alert('本試験では使用しません')">
+    <input type="button" value="パスワード変更" onclick="alert('本試験では使用しません')"></div>
+    <div class="box" style="flex:1"><b>【低圧（特定小売供給約款）のお申込み】</b><br>特定小売供給約款とは以下のプランをいいます。<br>定額電灯、従量電灯A/B/C、臨時電灯A/B/C、公衆街路灯A/B、低圧電力、臨時電力、農事用電力</div></div>`));
+}
+function hepList() {
+  const rows = S.apps.map((a, i) => `<tr><td>${i + 1}</td><td><input type="radio" name="sel" value="${a.id}"></td><td>${a.hepNo}</td><td>1</td><td>${a.takuso || ''}</td><td></td><td>${esc(a.d.meigi1)}<br>${esc(a.d.meigi2)}</td><td>${fmt(new Date(a.createdAt))}</td><td>${a.d.date}</td><td>${a.status}</td><td>${esc(a.d.addr)}${esc(a.d.banchi)}</td></tr>`).join('');
+  h(hepWrap('低圧一括申込検索一覧', `<form name="f">
+  <div>検索条件　<input type="radio" name="k" checked> 代表申込検索　<input type="radio" name="k"> 関連申込情報による代表申込検索</div>
+  <table class="f"><tr><th>申込状況</th><td><select name="st"><option></option><option>一時保存</option><option>申込受付待ち</option><option>申込受付完了</option><option>託送申込済</option><option>落成登録待ち</option><option>工事完了</option><option>申込取消</option></select></td><th>申込年月日</th><td><input type="text" size="8"> ～ <input type="text" size="8"></td><th>託送申込番号</th><td><input type="text" name="tk" size="14"></td></tr>
+  <tr><th>申込種別</th><td><select disabled><option>新設</option></select></td><th>申込番号</th><td><input type="text" name="no" size="14"></td><th>設計番号</th><td><input type="text" size="10"></td></tr>
+  <tr><th>契約名義1（カナ）</th><td><input type="text" size="24"> (全角)</td><th>契約名義1（漢字）</th><td colspan="3"><input type="text" size="30"> (全角)</td></tr></table>
+  <input type="button" value="検索" onclick="route()"> <input type="button" value="戻る" onclick="go('#/hep/menu')">
+  <div class="note">・代表申込のみ検索結果に表示されます。</div>
+  <div class="sec">検索結果</div>
+  <table class="r"><tr><th>No</th><th>選択</th><th>申込番号</th><th>同時申込件数</th><th>託送申込番号</th><th>設計番号</th><th>契約名義</th><th>申込年月日</th><th>送電希望日</th><th>申込状況</th><th>契約住所</th></tr>${rows || '<tr><td colspan="11" style="text-align:center;color:#888">該当する申込はありません</td></tr>'}</table>
+  <div style="margin-top:8px"><input type="button" class="primary" value="新規登録" onclick="go('#/hep/consent')"> <input type="button" value="参照登録" onclick="alert('本試験では使用しません')"> <input type="button" value="詳細" onclick="hepSel(this.form,'detail')"> <input type="button" value="修正" onclick="alert('申込受付待ち以外は修正できません')"> <input type="button" value="取消" onclick="alert('本試験では使用しません')"></div></form>`));
+}
+window.hepSel = (f, to) => { const v = fv(f, 'sel'); if (!v) return alert('申込を選択してください'); go('#/hep/' + to + '/' + v); };
+function hepConsent() {
+  S.tmp = S.tmp || {}; S.tmp.consentOpened = false; save(S);
+  h(hepWrap('低圧電気契約承諾', `<div id="e"></div><form name="f">
+  <p>お申込みおよびご契約に関する以下の電気需給契約における重要事項をご確認のうえ、承諾いただける場合は、「承諾する」にチェックをして「次へ」ボタンを押してください。</p>
+  <input type="button" value="電気需給契約における重要事項" style="background:#c33;color:#fff;padding:14px 30px;font-size:14px" onclick="hepOpenTerms()">
+  <p style="margin-top:20px">上記電気需給契約における重要事項に承諾する。 <input type="checkbox" name="ok"></p>
+  <input type="button" value="戻る" onclick="go('#/hep/list')"> <input type="button" class="primary" value="次へ" onclick="hepConsentNext(this.form)"></form>`));
+}
+window.hepOpenTerms = () => { S.tmp.consentOpened = true; save(S); log('hep', '重要事項を表示'); alert('【電気需給契約における重要事項】（モック）\n・本申込は架空のものです。\n・送電希望日は入力日を除いて10日以上先としてください。\n・契約名義は名義1が20文字を超える場合、名義2へ分割してください。'); };
+window.hepConsentNext = f => {
+  const e = document.getElementById('e');
+  if (!S.tmp || !S.tmp.consentOpened) { e.innerHTML = '<div class="err">S7ZZZZE1162 電気需給契約における重要事項ボタンを押下し、内容をご確認ください。</div>'; log('hep', 'エラー', 'E1162'); return; }
+  if (!f.elements.ok.checked) { e.innerHTML = '<div class="err">S7ZZZZE1037 電気需給契約における重要事項に承諾いただける場合は、「承諾する」にチェックしてください。</div>'; log('hep', 'エラー', 'E1037'); return; }
+  go('#/hep/form1');
+};
+function hepForm1() {
+  const d = (S.tmp && S.tmp.d) || {};
+  const v = n => esc(d[n] || '');
+  h(hepWrap('低圧一括申込登録（共通項目）', `<div id="e"></div><form name="f"><div class="note"><span class="req">*</span> は、必須入力項目です</div>
+  <div class="sec">お申込み内容（代表申込　共通項目）</div>
+  <table class="f">
+  <tr><th>申込種別<span class="req">*</span></th><td>新設</td></tr>
+  <tr><th>送電希望年月日<span class="req">*</span></th><td><input type="text" name="date" size="10" value="${v('date')}"> 例 20260401 ※入力日を除いて１０日以上先の日付を入力してください。</td></tr>
+  <tr><th>契約名義<span class="req">*</span></th><td>(名　義) <input type="text" name="meigi1" size="30" value="${v('meigi1')}"> (全角文字)<br>(フリガナ) <input type="text" name="kana1" size="40" value="${v('kana1')}"> (全角英数カナ)<br>
+  <span class="note">※契約名義が20文字を超える場合は下段へ入力願います。漢字名義は各20文字以内、カナ名義は各39文字以内で入力してください。</span><br>
+  (名　義) <input type="text" name="meigi2" size="30" value="${v('meigi2')}"> (全角文字)<br>(フリガナ) <input type="text" name="kana2" size="40" value="${v('kana2')}"> (全角英数カナ)</td></tr>
+  <tr><th>郵便番号<span class="req">*</span></th><td><input type="text" name="zip1" size="3" value="${v('zip1')}"> - <input type="text" name="zip2" size="4" value="${v('zip2')}"> <input type="button" value="住所検索" onclick="alert('モックでは住所を直接入力してください')"> (半角数字)<br><span class="note">※こちらは「ご使用場所住所」を入力する欄となります。</span></td></tr>
+  <tr><th>住所（都道府県～丁目）<span class="req">*</span></th><td><input type="text" name="addr" size="50" value="${v('addr')}"> (全角文字)</td></tr>
+  <tr><th>住所（番地・号）<span class="req">*</span></th><td><input type="text" name="banchi" size="12" value="${v('banchi')}"> (全角数字・全角ハイフン)</td></tr>
+  <tr><th>住所（建物名）</th><td>(建物名) <input type="text" name="bld" size="30" value="${v('bld')}"> (全角文字)　<input type="checkbox" name="nobld" ${d.nobld ? 'checked' : ''}> 建物名なし</td></tr>
+  <tr><th>電話番号1<span class="req">*</span></th><td><select name="teltype"><option>事務所</option><option>自宅</option><option>携帯</option><option>その他</option></select> <input type="text" name="tel" size="14" value="${v('tel')}"> (半角数字・ハイフン)</td></tr>
+  </table>
+  <div class="sec">請求情報（郵送先）</div>
+  <table class="f"><tr><th>請求先</th><td><input type="checkbox" name="samebill" ${d.samebill !== false ? 'checked' : ''}> 契約名義・ご使用場所と同じ</td></tr>
+  <tr><th>建築会社名／販売店名<span class="req">*</span></th><td><input type="text" name="builder" size="30" value="${v('builder')}"> (全角文字) ※該当しない場合は「なし」</td></tr></table>
+  <div class="sec">電気工事店情報</div>
+  <table class="f"><tr><th>電気工事店登録番号<span class="req">*</span></th><td><input type="text" name="kojiten" size="10" value="${v('kojiten')}"> (半角) ※HPGが発行する工事店番号</td></tr>
+  <tr><th>会社名</th><td>株式会社ホシノ電設</td></tr>
+  <tr><th>担当者名<span class="req">*</span></th><td>(名　義) <input type="text" name="tanto" size="20" value="${v('tanto')}"> (全角)　(フリガナ) <input type="text" name="tantokana" size="20" value="${v('tantokana')}"></td></tr>
+  <tr><th>担当者連絡先<span class="req">*</span></th><td><input type="text" name="tantotel" size="14" value="${v('tantotel')}"> (半角)</td></tr>
+  <tr><th>メールアドレス<span class="req">*</span></th><td><input type="text" name="mail" size="40" value="${v('mail')}"> (半角)</td></tr>
+  <tr><th>HPG「託送Web申込システム」ID<span class="req">*</span></th><td><input type="text" name="hpgid" size="14" value="${v('hpgid')}"> (半角) ※設備情報のご登録をいただくユーザIDを入力してください。</td></tr></table>
+  <div class="sec">工事費等支払情報</div>
+  <table class="f"><tr><th>支払方法<span class="req">*</span></th><td><select name="pay"><option value="">　</option><option ${d.pay === 'Web決済サービス' ? 'selected' : ''}>Web決済サービス</option></select></td></tr>
+  <tr><th>ひかり電力への連絡事項</th><td><input type="text" name="memo" size="60" value="${v('memo')}"></td></tr></table>
+  <div class="sec">添付ファイル</div>
+  <div class="note">・『平面図』の添付が必須です。①平面図 ②幹線系統図 ③その他資料 の順に添付してください。</div>
+  <table class="r"><tr><th>No</th><th>ファイル</th><th>ファイル内容</th></tr>
+  ${[1, 2, 3].map(i => `<tr><td>${i}</td><td><input type="file" name="file${i}"> <span class="note">${d['file' + i] ? '選択済：' + esc(d['file' + i]) : ''}</span></td><td><select name="kind${i}"><option value="">　</option>${['平面図', '幹線系統図', '案内図', '単線結線図', 'その他'].map(k => `<option ${d['kind' + i] === k ? 'selected' : ''}>${k}</option>`).join('')}</select></td></tr>`).join('')}</table>
+  <div style="margin-top:10px"><input type="button" value="戻る" onclick="go('#/hep/consent')"> <input type="button" class="primary" value="次へ" onclick="hepForm1Next(this.form)"></div></form>`));
+}
+window.hepForm1Next = f => {
+  const d = {}; ['date', 'meigi1', 'kana1', 'meigi2', 'kana2', 'zip1', 'zip2', 'addr', 'banchi', 'bld', 'teltype', 'tel', 'builder', 'kojiten', 'tanto', 'tantokana', 'tantotel', 'mail', 'hpgid', 'pay', 'memo', 'kind1', 'kind2', 'kind3'].forEach(n => d[n] = fv(f, n));
+  d.nobld = f.elements.nobld.checked; d.samebill = f.elements.samebill.checked;
+  const prev = (S.tmp && S.tmp.d) || {};
+  [1, 2, 3].forEach(i => { const fi = f.elements['file' + i]; d['file' + i] = (fi.files && fi.files[0]) ? fi.files[0].name : (prev['file' + i] || ''); });
+  const errs = [];
+  const req = (n, l) => { if (!d[n]) errs.push(`S7ZZZZE1001 ${l}は必須入力項目です。`); };
+  req('date', '送電希望年月日'); req('meigi1', '契約名義（名義）'); req('kana1', '契約名義（フリガナ）'); req('zip1', '郵便番号'); req('zip2', '郵便番号'); req('addr', '住所（都道府県～丁目）'); req('banchi', '住所（番地・号）'); req('tel', '電話番号1'); req('builder', '建築会社名／販売店名'); req('kojiten', '電気工事店登録番号'); req('tanto', '担当者名'); req('tantotel', '担当者連絡先'); req('mail', 'メールアドレス'); req('hpgid', 'HPG「託送Web申込システム」ID'); req('pay', '支払方法');
+  if (d.date && !/^\d{8}$/.test(d.date)) errs.push('S7ZZZZE1102 送電希望年月日はYYYYMMDD形式（半角数字8桁）で入力してください。');
+  else if (d.date) { const t = today(); const min = new Date(t); min.setDate(min.getDate() + 10); if (Number(d.date) < Number(ymd(min))) errs.push('S7ZZZZE1103 送電希望年月日は入力日を除いて１０日以上先の日付を入力してください。'); }
+  if (d.meigi1 && !isZenkaku(d.meigi1)) errs.push('S7ZZZZE1201 契約名義（名義）は全角文字で入力してください。');
+  if (d.meigi1.length > 20) errs.push('S7ZZZZE1202 契約名義（名義）は20文字以内で入力してください。20文字を超える場合は下段へ分割してください。');
+  if (d.meigi2 && (!isZenkaku(d.meigi2) || d.meigi2.length > 20)) errs.push('S7ZZZZE1203 契約名義（名義）下段は全角20文字以内で入力してください。');
+  if (d.kana1 && (!isZenkaku(d.kana1) || !/^[ァ-ヶー　・]+$/.test(d.kana1))) errs.push('S7ZZZZE1204 契約名義（フリガナ）は全角カナで入力してください。');
+  if (d.kana1.length > 39 || d.kana2.length > 39) errs.push('S7ZZZZE1205 契約名義（フリガナ）は39文字以内で入力してください。');
+  if (d.kana2 && !/^[ァ-ヶー　・]+$/.test(d.kana2)) errs.push('S7ZZZZE1204 契約名義（フリガナ）下段は全角カナで入力してください。');
+  if ((d.zip1 && !/^\d{3}$/.test(d.zip1)) || (d.zip2 && !/^\d{4}$/.test(d.zip2))) errs.push('S7ZZZZE1301 郵便番号は半角数字（3桁-4桁）で入力してください。');
+  if (d.addr && !isZenkaku(d.addr)) errs.push('S7ZZZZE1302 住所（都道府県～丁目）は全角文字で入力してください。');
+  if (d.banchi && !/^[０-９－]+$/.test(d.banchi)) errs.push('S7ZZZZE1303 住所（番地・号）は全角数字・全角ハイフンで入力してください。');
+  if (d.tel && !/^\d{2,4}-\d{2,4}-\d{3,4}$/.test(d.tel)) errs.push('S7ZZZZE1401 電話番号1は半角数字・ハイフン（例 03-1234-5678）で入力してください。');
+  if (d.tantotel && !/^\d{2,4}-\d{2,4}-\d{3,4}$/.test(d.tantotel)) errs.push('S7ZZZZE1401 担当者連絡先は半角数字・ハイフンで入力してください。');
+  if (d.kojiten && !isHankaku(d.kojiten)) errs.push('S7ZZZZE1501 電気工事店登録番号は半角で入力してください。');
+  if (d.hpgid && !/^[A-Za-z0-9]+$/.test(d.hpgid)) errs.push('S7ZZZZE1502 HPG「託送Web申込システム」IDは半角英数字で入力してください。');
+  if (d.mail && !/^[^@\s]+@[^@\s]+$/.test(d.mail)) errs.push('S7ZZZZE1503 メールアドレスの形式が正しくありません。');
+  const hasPlan = [1, 2, 3].some(i => d['file' + i] && d['kind' + i] === '平面図');
+  if (!hasPlan) errs.push('S7ZZZZE1601 ファイル内容「平面図」の添付ファイルは必須です。');
+  [1, 2, 3].forEach(i => { if ((d['file' + i] && !d['kind' + i]) || (!d['file' + i] && d['kind' + i])) errs.push(`S7ZZZZE1602 添付ファイルNo${i}：ファイルとファイル内容の両方を指定してください。`); });
+  S.tmp = S.tmp || {}; S.tmp.d = Object.assign(S.tmp.d || {}, d); save(S);
+  if (errs.length) { document.getElementById('e').innerHTML = '<div class="err">' + errs.map(esc).join('<br>') + '</div>'; log('hep', 'エラー', errs.map(x => x.slice(0, 11)).join(',')); hepForm1(); document.getElementById('e').innerHTML = '<div class="err">' + errs.map(esc).join('<br>') + '</div>'; return; }
+  go('#/hep/form2');
+};
+function hepForm2() {
+  const d = (S.tmp && S.tmp.d) || {};
+  const sel = (n, opts) => `<select name="${n}"><option value="">　</option>${opts.map(o => `<option ${d[n] === o ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
+  h(hepWrap('低圧一括申込登録（個別項目）', `<div id="e"></div><form name="f">
+  <div class="sec">申込内容（接続供給）</div>
+  <table class="f"><tr><th>契約種別<span class="req">*</span></th><td>${sel('kind', ['従量電灯B', '従量電灯C', '低圧電力', '臨時電力'])}</td></tr>
+  <tr><th>供給方式線式<span class="req">*</span></th><td>${sel('method', ['単相2線式100V', '単相2線式200V', '単相3線式100／200V', '3相3線式200V'])}</td></tr>
+  <tr><th>主開閉器容量<span class="req">*</span></th><td>${sel('breaker', ['30A', '50A', '75A', '100A', '150A', '175A', '200A'])}</td></tr>
+  <tr><th>引込口配線</th><td>${sel('wire', ['2.0mm', '2.6mm', '8mm2', '14mm2', '22mm2', '38mm2'])}</td></tr>
+  <tr><th>業種</th><td>${sel('gyoshu', ['住宅', '事務所', '店舗', 'その他'])}</td></tr>
+  <tr><th>負荷設備</th><td><input type="text" name="load" size="40" value="${esc(d.load || '')}"> 例：系統用蓄電池 43kVA</td></tr></table>
+  <div style="margin-top:10px"><input type="button" value="戻る" onclick="go('#/hep/form1')"> <input type="button" class="primary" value="次へ" onclick="hepForm2Next(this.form)"></div></form>`));
+}
+window.hepForm2Next = f => {
+  const d = S.tmp.d; ['kind', 'method', 'breaker', 'wire', 'gyoshu', 'load'].forEach(n => d[n] = fv(f, n)); save(S);
+  const errs = []; if (!d.kind) errs.push('S7ZZZZE1001 契約種別は必須入力項目です。'); if (!d.method) errs.push('S7ZZZZE1001 供給方式線式は必須入力項目です。'); if (!d.breaker) errs.push('S7ZZZZE1001 主開閉器容量は必須入力項目です。');
+  if (errs.length) { document.getElementById('e').innerHTML = '<div class="err">' + errs.join('<br>') + '</div>'; return; }
+  go('#/hep/confirm');
+};
+function hepRows(d) {
+  const L = [['送電希望年月日', d.date], ['契約名義（名義）', d.meigi1 + (d.meigi2 ? '<br>' + esc(d.meigi2) : '')], ['契約名義（フリガナ）', d.kana1 + (d.kana2 ? '<br>' + esc(d.kana2) : '')], ['郵便番号', d.zip1 + '-' + d.zip2], ['住所', esc(d.addr) + '　' + esc(d.banchi) + (d.nobld ? '　（建物名なし）' : '　' + esc(d.bld))], ['電話番号1', d.teltype + '　' + d.tel], ['請求先', d.samebill ? '契約名義・ご使用場所と同じ' : '別途'], ['建築会社名／販売店名', d.builder], ['電気工事店登録番号', d.kojiten], ['担当者', d.tanto + '（' + d.tantokana + '）　' + d.tantotel], ['メールアドレス', d.mail], ['HPG ID', d.hpgid], ['支払方法', d.pay], ['契約種別／供給方式／主開閉器容量／引込口配線', [d.kind, d.method, d.breaker, d.wire].join('　／　')], ['添付ファイル', [1, 2, 3].filter(i => d['file' + i]).map(i => esc(d['file' + i]) + '（' + d['kind' + i] + '）').join('<br>')]];
+  return '<table class="f">' + L.map(([k, v]) => `<tr><th>${k}</th><td>${v || ''}</td></tr>`).join('') + '</table>';
+}
+function hepConfirm() {
+  const d = S.tmp.d;
+  h(hepWrap('低圧一括申込登録（確認）', `<p>入力内容をご確認のうえ、「申込」ボタンを押してください。</p>${hepRows(d)}
+  <input type="button" value="戻る" onclick="go('#/hep/form2')"> <input type="button" class="primary" value="申込" onclick="hepSubmit()">`));
+}
+window.hepSubmit = () => {
+  S.seq++; const d = S.tmp.d; const id = 'a' + Date.now();
+  const app = { id, hepNo: 'S' + ymd(today()).slice(2) + String(S.seq).padStart(5, '0'), d, status: '申込受付待ち', createdAt: Date.now(), mails: [] };
+  app.mails.push({ t: Date.now(), subject: '【HEP】お申込み受付のお知らせ（' + d.meigi2 + '）', body: '申込番号 ' + app.hepNo + ' でお申込みを受け付けました。受付処理が完了しましたら、託送申込番号を別途ご連絡します。' });
+  S.apps.push(app); S.tmp = {}; save(S); log('hep', '申込完了', app.hepNo + ' ' + d.meigi2); go('#/hep/done/' + id);
+};
+function hepDone(id) {
+  const a = S.apps.find(x => x.id === id); if (!a) return go('#/hep/list');
+  h(hepWrap('低圧一括申込登録（完了）', `<div class="ok">お申込みを受け付けました。申込番号：<b>${a.hepNo}</b><br>受付処理の完了後、託送申込番号を「受信メール」および「低圧一括申込検索一覧」にてご確認ください。</div>
+  <input type="button" value="検索一覧へ" onclick="go('#/hep/list')"> <input type="button" value="続けて新規登録" onclick="go('#/hep/consent')">`));
+}
+function hepDetail(id) { const a = S.apps.find(x => x.id === id); if (!a) return go('#/hep/list'); h(hepWrap('低圧一括申込詳細', `<table class="f"><tr><th>申込番号</th><td>${a.hepNo}</td></tr><tr><th>申込状況</th><td>${a.status}</td></tr><tr><th>託送申込番号</th><td>${a.takuso || '（未発行）'}</td></tr></table>${hepRows(a.d)}<input type="button" value="戻る" onclick="go('#/hep/list')">`)); }
+function hepMail() {
+  const mails = []; S.apps.forEach(a => (a.mails || []).forEach(m => mails.push(m))); mails.sort((x, y) => y.t - x.t);
+  h(hepWrap('受信メール（shinsei@hoshino-densetsu.example）', mails.length ? mails.map(m => `<div class="box"><b>${esc(m.subject)}</b> <span class="note">${new Date(m.t).toLocaleString()}</span><pre style="background:none;max-height:none">${esc(m.body)}</pre></div>`).join('') : '<p class="note">メールはありません</p>') + `<input type="button" value="戻る" onclick="go('#/hep/menu')">`);
+}
+
+/* ============ HPG ============ */
+function hpgWrap(title, body) {
+  return `<div class="site hpg"><div class="hdr"><b>HIKARI POWER GRID</b><span><small>ひかり電力パワーグリッド株式会社　託送Web申込システム</small></span></div>
+  <div class="ttl">${title}<span style="float:right;font-weight:normal;font-size:12px">${S.session.hpg ? 'ログインユーザ：星野　太郎さま　<a href="#/hpg/menu">メニュー</a>　<a href="#/hpg/logout">ログアウト</a>　<a href="#/files">資料</a>　<a href="#/submit">提出コード</a>' : ''}</span></div>
+  <div class="cnt">${body}</div><div class="ftr">(c) HIKARI Power Grid, Inc. (mock)</div></div>`;
+}
+function HPG(pg, arg) {
+  log('hpg', '画面', pg || 'login');
+  if (pg === 'logout') { S.session.hpg = false; save(S); return go('#/hpg'); }
+  if (!S.session.hpg) return h(hpgWrap('ログイン', `<div id="e"></div><form name="f"><p>「ＩＤ」と「パスワード」を入力のうえ、「ログイン」ボタンを押してください</p>
+    <table class="f" style="width:420px"><tr><th>ＩＤ</th><td><input type="text" name="id" size="14"> (半角)</td></tr><tr><th>パスワード</th><td><input type="password" name="pw" size="20"> (半角)</td></tr></table>
+    <input type="button" class="primary" value="ログイン" onclick="hpgLogin(this.form)"></form>`));
+  const p = { menu: hpgMenu, search: hpgSearch, inquiry: hpgInquiry, edit: hpgEdit, confirm: hpgConfirm, done: hpgDone }[pg || 'menu'];
+  return p ? p(arg) : go('#/hpg/menu');
+}
+window.hpgLogin = f => { if (fv(f, 'id') === CRED.hpg.id && fv(f, 'pw') === CRED.hpg.pw) { S.session.hpg = true; save(S); log('hpg', 'ログイン'); go('#/hpg/menu'); } else document.getElementById('e').innerHTML = '<div class="err">LVA2ZZE0001 ＩＤまたはパスワードが正しくありません。</div>'; };
+function hpgMenu() {
+  h(hpgWrap('申込管理メニュー', `<div style="display:flex;gap:16px"><div class="box" style="width:520px"><b>＜個別業務＞</b><br>地点番号 <input type="text" size="2">-<input type="text" size="4">-<input type="text" size="4">-<input type="text" size="4">-<input type="text" size="4">-<input type="text" size="4">　申込番号 <input type="text" size="14">
+  <div style="display:flex;gap:16px;margin-top:10px"><div class="box"><b>＜申込情報管理＞</b><br><input type="button" value="申込受付" onclick="go('#/hpg/search')"></div><div class="box"><b>＜ユーザ情報管理＞</b><br><input type="button" value="ユーザ情報変更" onclick="alert('本試験では使用しません')"><br><input type="button" value="パスワード変更" onclick="alert('本試験では使用しません')"></div></div></div></div>
+  <div class="sec">＜お知らせ一覧＞</div><table class="r"><tr><th>No</th><th>掲載日</th><th>件名</th></tr><tr><td>1</td><td>2026/08/17</td><td>Ｗｅｂ申込システムへご提出いただく資料に関するお願いについて</td></tr><tr><td>2</td><td>2026/04/01</td><td>託送供給申込におけるお申込み受付から送電までの所要期間の更新について</td></tr><tr><td>3</td><td>2024/12/18</td><td>電柱標識名の入力チェック機能導入について（標識名＋番号で入力してください）</td></tr></table>`));
+}
+function hpgSearch() {
+  const q = S.tmp && S.tmp.hpgq || {};
+  let res = null;
+  if (q.done) {
+    res = S.apps.filter(a => a.takuso && (!q.no || a.takuso === q.no || a.hepNo === q.no) && (!q.kana || (a.d.kana1 + a.d.kana2).includes(q.kana)) && (!q.st || hpgStatus(a) === q.st));
+  }
+  h(hpgWrap('申込内容一覧検索', `<div id="e">${q.err ? '<div class="err">' + q.err + '</div>' : ''}</div><form name="f"><div class="sec">■検索条件</div>
+  <table class="f"><tr><th>申込区分</th><td><select name="kbn"><option value="1" ${q.kbn === '1' ? 'selected' : ''}>託送</option><option value="2" ${q.kbn === '2' ? 'selected' : ''}>託送発電</option><option value="4" ${q.kbn === '4' ? 'selected' : ''}>受給</option></select></td><th>申込番号</th><td><input type="text" name="no" size="16" value="${esc(q.no || '')}"></td><th>申込年月日</th><td><input type="text" size="8"> ～ <input type="text" size="8"></td></tr>
+  <tr><th>電圧区分</th><td><select><option></option><option>低圧</option><option>特別高圧・高圧</option></select></td><th>工程状況</th><td><select name="st"><option></option>${['申込受付待ち', '申込受付中', '申込受付完了', '落成登録待ち', '送電完了', '申込取消'].map(s => `<option ${q.st === s ? 'selected' : ''}>${s}</option>`).join('')}</select></td><th>設計番号</th><td><input type="text" size="10"></td></tr>
+  <tr><th>需要者/発電者名義１（カナ）</th><td colspan="3"><input type="text" name="kana" size="30" value="${esc(q.kana || '')}"> （全角）</td><th>工事店番号</th><td><input type="text" size="8"></td></tr></table>
+  <input type="button" class="primary" value="検索" onclick="hpgDoSearch(this.form)">
+  <div class="sec">■検索結果</div>${res ? res.length + '件' : ''}
+  <table class="r"><tr><th>No</th><th>選択</th><th>申込番号</th><th>設計番号</th><th>需要者/発電者名義</th><th>需要場所/発電場所住所</th><th>申込日</th><th>希望日</th><th>申込種別</th><th>工程状況</th></tr>
+  ${(res || []).map((a, i) => `<tr><td>${i + 1}</td><td><input type="radio" name="sel" value="${a.id}"></td><td>${a.takuso}</td><td>1AB${String(1000 + i)}</td><td>${esc(a.d.meigi1)}<br>${esc(a.d.meigi2)}</td><td>${esc(a.d.addr)}${esc(a.d.banchi)}</td><td>${fmt(new Date(a.takusoAt))}</td><td>${a.d.date}</td><td>新設</td><td>${hpgStatus(a)}</td></tr>`).join('')}</table>
+  <div style="margin-top:8px"><input type="button" value="新規登録(発電)" onclick="alert('本試験では使用しません')"> <input type="button" value="新規登録(託送)" onclick="alert('本試験では使用しません')"> <input type="button" value="参照登録" onclick="alert('本試験では使用しません')"> <input type="button" class="primary" value="内容照会／訂正" onclick="hpgSel(this.form)"> <input type="button" value="落成連絡" onclick="alert('本試験では使用しません')"> <input type="button" value="工程照会" onclick="alert('本試験では使用しません')"></div></form>`));
+}
+function hpgStatus(a) { return a.hpg ? '申込受付完了' : '申込受付中'; }
+window.hpgDoSearch = f => { const q = { kbn: fv(f, 'kbn'), no: fv(f, 'no'), kana: fv(f, 'kana'), st: fv(f, 'st'), done: true }; if (!q.no && !q.kana && !q.st) { q.err = 'LVA2ZZE0134 検索条件が正しくありません。検索条件を見直してください。'; q.done = false; log('hpg', 'エラー', 'E0134'); } else if (q.kbn !== '1') { q.err = 'LVA2ZZE0135 該当する申込がありません（申込区分を確認してください）。'; q.done = false; } S.tmp = S.tmp || {}; S.tmp.hpgq = q; save(S); log('hpg', '検索', q.no || q.kana || q.st); hpgSearch(); };
+window.hpgSel = f => { const v = fv(f, 'sel'); if (!v) return alert('申込を選択してください'); go('#/hpg/inquiry/' + v); };
+function hpgInquiry(id) {
+  const a = S.apps.find(x => x.id === id); if (!a) return go('#/hpg/search');
+  const g = a.hpg || {}; const d = a.d;
+  h(hpgWrap('需要-低圧申込内容照会', `<div class="subnav"><a href="#/hpg/search">|↑戻る|</a></div>
+  <div class="sec">■申込基本情報</div><table class="f"><tr><th>申込日</th><td>${fmt(new Date(a.takusoAt))}</td><th>工程状況</th><td>${hpgStatus(a)}</td></tr><tr><th>申込種別</th><td>新設</td><th>接続供給開始希望日</th><td>${d.date}</td></tr><tr><th>申込番号</th><td>${a.takuso}</td><th>設計番号</th><td>1AB1000</td></tr></table>
+  <div class="sec">■需要者情報</div><table class="f"><tr><th>需要者名義1</th><td>${esc(d.meigi1)}（${esc(d.kana1)}）</td></tr><tr><th>需要者名義2</th><td>${esc(d.meigi2)}（${esc(d.kana2)}）</td></tr><tr><th>需要場所</th><td>〒${d.zip1}-${d.zip2}　${esc(d.addr)}　${esc(d.banchi)}</td></tr><tr><th>電話番号1</th><td>${d.teltype}　${d.tel}</td></tr></table>
+  <div class="sec">■契約・需要設備情報</div><table class="f"><tr><th>契約種別</th><td>${d.kind}</td><th>供給方式線式</th><td>${d.method}</td></tr><tr><th>主開閉器容量</th><td>${d.breaker}</td><th>引込口配線</th><td>${d.wire}</td></tr></table>
+  <div class="sec">■配電設備情報（引込方法確認）</div>${hpgRows(g)}
+  <div class="sec">■工事店情報</div><table class="f"><tr><th>担当ユーザID</th><td>${esc(d.hpgid)}</td><th>工事店番号</th><td>${esc(d.kojiten)}</td></tr><tr><th>担当者名</th><td>${esc(d.tanto)}</td><th>電話番号</th><td>${d.tantotel}</td></tr></table>
+  <div class="sec">■添付ファイル</div><table class="r"><tr><th>No</th><th>ファイル内容</th><th>ファイル名</th></tr>${[1, 2, 3].filter(i => d['file' + i]).map((i, k) => `<tr><td>${k + 1}</td><td>${d['kind' + i]}</td><td>${esc(d['file' + i])}</td></tr>`).join('')}</table>
+  <div style="margin-top:10px"><input type="button" value="一括申込詳細照会" onclick="alert('本試験では使用しません')"> <input type="button" value="ダウンロード" onclick="alert('本試験では使用しません')"> <input type="button" value="取消" onclick="alert('本試験では使用しません')"> <input type="button" value="支払情報登録" onclick="alert('本試験では使用しません')"> <input type="button" class="primary" value="訂正" onclick="go('#/hpg/edit/${id}')"></div>`));
+}
+const CHECKS = ['引込線が鉄道沿いで', '引込線が国道や都県道の道路沿いで', '引込線が国道・都県道を横断', '引込線がバス通り沿いで', '引込線が商店街通り沿いで', '引込線が一方通行の道路沿いで', '引込線が送電線下で', '引込線が小柱（他者小柱を含む）を経由', '設計協議を希望', '引込線等が他人敷地を通過', '引込線取付金具は', '引込線等が河川区域内に', '地上高、離隔等の確保が出来ている', '取付点高さ・作業スペースが確保できている'];
+const CHOPT = [['ある', 'ない'], ['ある', 'ない'], ['する', 'しない'], ['ある', 'ない'], ['ある', 'ない'], ['ある', 'ない'], ['ある', 'ない'], ['する', 'しない'], ['する', 'しない'], ['はい', 'いいえ'], ['ある', 'ない'], ['入る', '入らない', '該当なし'], ['はい', 'いいえ'], ['はい', 'いいえ']];
+const METER = ['（１）検針窓のある金属製計器箱の中に設置されている', '（２）計器の前面１．５ｍ以内に4階建て以上の建物がある等', '該当なし'];
+function hpgRows(g) {
+  return `<table class="f"><tr><th>工事区分</th><td>${g.kubun || ''}</td><th>引込工事</th><td>${g.hikikomi || ''}</td></tr><tr><th>計器取付位置の変更</th><td>${g.meterpos || ''}</td><th>引込方法</th><td>${g.method || ''}</td></tr>
+  <tr><th>隣接柱（左）</th><td>${esc(g.lname || '')} ${esc(g.lno || '')}${g.lno ? ' 号柱' : ''}</td><th>供給柱</th><td>${esc(g.sname || '')} ${esc(g.sno || '')}${g.sno ? ' 号柱' : ''}</td></tr>
+  <tr><th>隣接柱（右）</th><td>${esc(g.rname || '')} ${esc(g.rno || '')}${g.rno ? ' 号柱' : ''}</td><th>引込線取付点の高さ／引込線の長さ</th><td>${g.height ? g.height + ' ｍ' : ''}　／　${g.linelen ? g.linelen + ' ｍ' : ''}</td></tr>
+  ${CHECKS.map((c, i) => i % 2 === 0 ? `<tr><th>${c}</th><td>${g['c' + i] || ''}</td><th>${CHECKS[i + 1] || ''}</th><td>${g['c' + (i + 1)] || ''}</td></tr>` : '').join('')}
+  <tr><th>計器の取付状況について</th><td colspan="3">${esc(g.meter || '')}</td></tr></table>`;
+}
+function hpgEdit(id) {
+  const a = S.apps.find(x => x.id === id); if (!a) return go('#/hpg/search');
+  const g = (S.tmp && S.tmp.hpgd && S.tmp.hpgd.id === id) ? S.tmp.hpgd : (a.hpg || {});
+  const sel = (n, opts) => `<select name="${n}"><option value="">　</option>${opts.map(o => `<option ${g[n] === o ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
+  const tx = (n, sz) => `<input type="text" name="${n}" size="${sz || 8}" value="${esc(g[n] || '')}">`;
+  h(hpgWrap('需要-低圧申込内容訂正（配電設備情報）', `<div id="e"></div><form name="f"><div class="note">申込番号：${a.takuso}　需要者名義：${esc(a.d.meigi1)}　${esc(a.d.meigi2)}　　●印は工事店入力項目です</div>
+  <div class="sec">■引込方法確認</div>
+  <table class="f"><tr><th>●工事区分</th><td>${sel('kubun', ['ひかり電力パワーグリッド工事', '引込請負工事'])}</td><th>●引込工事</th><td>${sel('hikikomi', ['あり', 'なし'])}</td></tr>
+  <tr><th>●計器取付位置の変更</th><td>${sel('meterpos', ['あり', 'なし'])}</td><th>●引込方法</th><td>${sel('method', ['本柱直接引込', '小柱経由', 'その他'])}</td></tr></table>
+  <div class="sec">■引込電柱（標識名＋番号で入力）</div>
+  <table class="f"><tr><th>●隣接柱（左）</th><td>標識名 ${tx('lname', 10)} 番号 ${tx('lno', 6)} 号柱　<span class="note">該当なしの場合は空欄</span></td></tr>
+  <tr><th>●供給柱<span class="req">*</span></th><td>標識名 ${tx('sname', 10)} 番号 ${tx('sno', 6)} 号柱</td></tr>
+  <tr><th>●隣接柱（右）</th><td>標識名 ${tx('rname', 10)} 番号 ${tx('rno', 6)} 号柱</td></tr>
+  <tr><th>●引込線取付点の高さ<span class="req">*</span></th><td>${tx('height', 4)} ｍ (半角数字)</td><th>●引込線の長さ<span class="req">*</span></th><td>${tx('linelen', 4)} ｍ (半角数字)</td></tr></table>
+  <div class="sec">■引込工事および計器工事を行う際の確認事項</div>
+  <table class="f">${CHECKS.map((c, i) => i % 2 === 0 ? `<tr><th>●${c}</th><td>${sel('c' + i, CHOPT[i])}</td><th>${CHECKS[i + 1] ? '●' + CHECKS[i + 1] : ''}</th><td>${CHECKS[i + 1] ? sel('c' + (i + 1), CHOPT[i + 1]) : ''}</td></tr>` : '').join('')}
+  <tr><th>●計器の取付状況について</th><td colspan="3">${sel('meter', METER)}</td></tr></table>
+  <div class="sec">■その他確認事項</div>
+  <table class="f"><tr><th>現場設計の立会希望</th><td>${sel('tachiai', ['希望する', '希望しない'])}</td><th>鍵の保管場所</th><td>${tx('key', 30)}</td></tr><tr><th>工事、調査留意事項</th><td colspan="3">${tx('memo', 70)}</td></tr></table>
+  <div style="margin-top:10px"><input type="button" value="戻る" onclick="go('#/hpg/inquiry/${id}')"> <input type="button" class="primary" value="確認" onclick="hpgEditNext(this.form,'${id}')"></div></form>`));
+}
+window.hpgEditNext = (f, id) => {
+  const g = { id }; ['kubun', 'hikikomi', 'meterpos', 'method', 'lname', 'lno', 'sname', 'sno', 'rname', 'rno', 'height', 'linelen', 'meter', 'tachiai', 'key', 'memo'].forEach(n => g[n] = fv(f, n)); CHECKS.forEach((c, i) => g['c' + i] = fv(f, 'c' + i));
+  const errs = [];
+  if (!g.sname || !g.sno) errs.push('LVA2ZZE1101 供給柱の標識名・番号は必須です。');
+  [['lname', 'lno', '隣接柱（左）'], ['sname', 'sno', '供給柱'], ['rname', 'rno', '隣接柱（右）']].forEach(([n1, n2, l]) => { if ((g[n1] && !g[n2]) || (!g[n1] && g[n2])) errs.push(`LVA2ZZE1102 ${l}は標識名と番号の両方を入力してください。`); if (g[n2] && !/^[0-9A-Za-z]+$/.test(g[n2])) errs.push(`LVA2ZZE1103 ${l}の番号は半角英数字で入力してください。`); if (g[n1] && /[\x21-\x7E]/.test(g[n1])) errs.push(`LVA2ZZE1104 ${l}の標識名は全角で入力してください。`); });
+  if (!/^\d+(\.\d+)?$/.test(g.height)) errs.push('LVA2ZZE1105 引込線取付点の高さは半角数字で入力してください。'); if (!/^\d+(\.\d+)?$/.test(g.linelen)) errs.push('LVA2ZZE1105 引込線の長さは半角数字で入力してください。');
+  if (!g.kubun || !g.hikikomi || !g.meterpos || !g.method) errs.push('LVA2ZZE1106 引込方法確認の各項目を選択してください。');
+  CHECKS.forEach((c, i) => { if (!g['c' + i]) errs.push('LVA2ZZE1107 確認事項「' + c + '」を選択してください。'); });
+  if (!g.meter) errs.push('LVA2ZZE1108 計器の取付状況を選択してください。');
+  S.tmp = S.tmp || {}; S.tmp.hpgd = g; save(S);
+  if (errs.length) { hpgEdit(id); document.getElementById('e').innerHTML = '<div class="err">' + errs.map(esc).join('<br>') + '</div>'; log('hpg', 'エラー', errs.length + '件'); return; }
+  go('#/hpg/confirm/' + id);
+};
+function hpgConfirm(id) { const g = S.tmp && S.tmp.hpgd; if (!g || g.id !== id) return go('#/hpg/edit/' + id); h(hpgWrap('需要-低圧申込内容訂正（確認）', `<p>訂正内容をご確認のうえ、「登録」ボタンを押してください。</p>${hpgRows(g)}<input type="button" value="戻る" onclick="go('#/hpg/edit/${id}')"> <input type="button" class="primary" value="登録" onclick="hpgSubmit('${id}')">`)); }
+window.hpgSubmit = id => { const a = S.apps.find(x => x.id === id); a.hpg = S.tmp.hpgd; a.hpgAt = Date.now(); S.tmp.hpgd = null; save(S); log('hpg', '訂正登録完了', a.takuso + ' ' + a.d.meigi2); go('#/hpg/done/' + id); };
+function hpgDone(id) { const a = S.apps.find(x => x.id === id); h(hpgWrap('需要-低圧申込内容訂正（完了）', `<div class="ok">訂正内容を登録しました。申込番号：<b>${a.takuso}</b>　工程状況：申込受付完了</div><input type="button" value="申込内容一覧検索へ" onclick="go('#/hpg/search')">`)); }
+
+
+
+/* ============ 資料ダウンロード ============ */
+const FILES = [
+  ['../files/kadai-yoshi-kohosha.docx', '課題用紙_候補者配布', '実技課題の設定・課題内容・時間配分（説明3分／作業22分／振り返り5分）。最初にお読みください'],
+  ['../files/kanrihyo-hatsudensho-joho.xlsx', 'ダミー管理表_発電所情報', '管理表[発電所情報]（20行）／工事店情報／業務ルール抜粋／申込番号記録'],
+  ['../files/tenpu-heimenzu.pdf', '添付_平面図', 'HEPの添付ファイル。ファイル内容「平面図」で添付（必須）'],
+  ['../files/tenpu-kansen-keitozu.pdf', '添付_幹線系統図', 'HEPの添付ファイル（任意）'],
+  ['../files/tenpu-ichizu-annaizu.pdf', '添付_位置図・案内図', 'HEPの添付ファイル（任意）'],
+];
+function filesPage() {
+  h(`<div class="site"><div class="hdr" style="background:#555"><b>課題資料のダウンロード</b></div>
+  <div class="ttl">課題資料のダウンロード</div><div class="cnt">
+  <p>下のファイルをダウンロードして作業してください。添付用のPDFは全案件で共通に使えます。</p>
+  <table class="r"><tr><th>資料</th><th>内容</th></tr>
+  ${FILES.map(([u, n, d]) => `<tr><td><a href="${u}" download="${u.split('/').pop()}"><b>${n}</b></a><br><span class="note">保存名：${u.split('/').pop()}</span></td><td>${d}</td></tr>`).join('')}</table>
+  <p class="note">ファイル名は半角英字で保存されます（内容は上記のとおりです）。ダウンロードできない場合は、面接官にチャットでの送付を依頼してください。</p>
+  <p style="margin-top:20px"><input type="button" value="モック環境に戻る" onclick="go('#/')"></p>
+  </div><div class="ftr">本課題のデータはすべて架空です。</div></div>`);
+}
+
+/* ============ 提出コード（状態のエクスポート／インポート） ============ */
+function b64(u8) { let r = ''; const CH = 0x8000; for (let i = 0; i < u8.length; i += CH) r += String.fromCharCode.apply(null, u8.subarray(i, i + CH)); return btoa(r); }
+function ub64(str) { const bin = atob(str); const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); return u8; }
+async function packState() {
+  const payload = { v: 1, at: new Date().toISOString(), apps: S.apps, log: S.log, settings: S.settings };
+  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  if (typeof CompressionStream === 'function') {
+    const cs = new CompressionStream('gzip'); const w = cs.writable.getWriter(); w.write(bytes); w.close();
+    const buf = await new Response(cs.readable).arrayBuffer();
+    return 'HZ1:' + b64(new Uint8Array(buf));
+  }
+  return 'HZ0:' + b64(bytes);
+}
+async function unpackState(code) {
+  const m = /^HZ([01]):([A-Za-z0-9+/=]+)$/.exec(String(code).replace(/\s+/g, ''));
+  if (!m) throw new Error('コードの形式が正しくありません（HZ1: で始まる文字列を貼り付けてください）');
+  const bytes = ub64(m[2]);
+  let json;
+  if (m[1] === '0') json = new TextDecoder().decode(bytes);
+  else { const ds = new DecompressionStream('gzip'); const w = ds.writable.getWriter(); w.write(bytes); w.close(); json = new TextDecoder().decode(new Uint8Array(await new Response(ds.readable).arrayBuffer())); }
+  const o = JSON.parse(json);
+  if (!o || !Array.isArray(o.apps)) throw new Error('コードの内容が読み取れませんでした');
+  return o;
+}
+function submitPage() {
+  const n1 = S.apps.length, n2 = S.apps.filter(a => a.takuso).length, n3 = S.apps.filter(a => a.hpg).length;
+  h(`<div class="site"><div class="hdr" style="background:#555"><b>提出コードの作成</b></div>
+  <div class="ttl">提出コードの作成</div><div class="cnt">
+  <p>下のボタンを押すと、これまでの登録内容と操作履歴を1つのコードにまとめます。面接官に<b>チャットで貼り付ける</b>か、<b>ファイルを送って</b>ください。</p>
+  <div class="kpi"><div>HEP申込完了<b>${n1}</b></div><div>託送申込番号<b>${n2}</b></div><div>HPG訂正登録<b>${n3}</b></div></div>
+  <p><input type="button" class="primary" value="提出コードを作成する" onclick="makeCode()"> <span class="note">作業の途中でも、何度でも作成できます。</span></p>
+  <div id="out"></div>
+  <p style="margin-top:20px"><input type="button" value="モック環境に戻る" onclick="go('#/')"></p>
+  </div><div class="ftr">この画面のコードには、あなたが登録した内容と操作履歴のみが含まれます。</div></div>`);
+}
+window.makeCode = async () => {
+  const out = document.getElementById('out');
+  out.innerHTML = '<p class="note">作成中…</p>';
+  try {
+    const code = await packState();
+    log('submit', '提出コード作成', code.length + '文字');
+    out.innerHTML = `<div class="ok">提出コードを作成しました（${code.length.toLocaleString()}文字）。</div>
+    <textarea id="code" rows="6" style="width:100%" readonly>${esc(code)}</textarea>
+    <p><input type="button" class="primary" value="コピーする" onclick="copyCode()"> <input type="button" value="ファイルとして保存" onclick="dlCode()"> <span id="cpmsg" class="note"></span></p>`;
+  } catch (e) { out.innerHTML = '<div class="err">' + esc(e.message) + '</div>'; }
+};
+window.copyCode = () => {
+  const t = document.getElementById('code'); t.select();
+  const done = () => { document.getElementById('cpmsg').textContent = 'コピーしました。面接官に貼り付けてください。'; };
+  if (navigator.clipboard) navigator.clipboard.writeText(t.value).then(done, () => { document.execCommand('copy'); done(); });
+  else { document.execCommand('copy'); done(); }
+};
+window.dlCode = () => {
+  const blob = new Blob([document.getElementById('code').value], { type: 'text/plain' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = '提出コード_' + new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '') + '.txt';
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+};
+
+
+
+route();
+</script>
+
+</body></html>
